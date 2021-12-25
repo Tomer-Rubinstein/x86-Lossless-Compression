@@ -1,8 +1,8 @@
 ; TODO:
 ;	[compress]
-;	buildSeqTable
+;	buildSeqTable (DONE)
 ;	buildMinHeap
-;	buildEncodedTable (not necessary but can make the outCompFile proc easier)
+;	buildEncodedTable
 ;	outCompFile
 
 
@@ -21,13 +21,13 @@ DATASEG
 
 	log_OpenError db 'Error: Program could not open the given file$'
 
+
 CODESEG
 start:
 	mov ax, @data
 	mov ds, ax
 
 	call buildSeqTable
-
 
 exit:
 	mov ax, 4c00h
@@ -45,23 +45,31 @@ proc strlen
 
 	mov ax, 0
 	mov si, 0
+
 	strlen_l1:
 		mov bl, [(offset filecontent) + si]
 		cmp bl, 0
 		je strlen_end
 
-		inc ax
 		inc si
 		
 		jmp strlen_l1
 
 	strlen_end:
+	mov ax, si
 	pop bx
 	pop si
 	ret
 endp strlen
 
-; all procedurs should be implemented here
+; buildSeqTable procedure initializes two arrays in the data segment:
+; * freqTableChars - which contains all the characters in the given file content
+; * freqTableCount - which contains how many times each character appears in the file content
+; both arrays are synchronized, meaning, freqTableCounts[i] holds the count for the character at freqTableChars[i] 
+; parameters:
+; 	none
+; return:
+;   none
 proc buildSeqTable
 	; open file
 	mov ah, 3Dh
@@ -82,14 +90,12 @@ proc buildSeqTable
 	mov si, 0 ; j, freqTableIndex
 	call strlen
 	mov cx, ax
-
 	l1:
 		call strlen ; can use the stack instead of calling strlen over and over again
 		mov di, ax
-		sub di, cx
+		sub di, cx ; converting to ascending indexing (0,1,...)
 
 		push si
-
 		mov si, 0
 		l2:
 			call strlen
@@ -102,11 +108,12 @@ proc buildSeqTable
 			mov bl, [(offset freqTableChars) + si]
 			cmp al, bl
 
-			je equal
+			je equal 
 
 			inc si
 			jmp l2
 
+			; current char of filecontent already exists in freqTableChars
 			equal:
 				mov ax, [(offset freqTableCount) + si]
 				inc ax
@@ -118,32 +125,33 @@ proc buildSeqTable
 				cmp cx, 0
 				jne l1
 				; ret
-				je hello
+				je hello ; DEBUG
 
-
+		; current char doesn't exist in the freqTable
 		continue:
 		pop si
 		mov bl, 0
 		mov al, 0
 		
+		; adding the char to freqTableChars
 		mov bl, [(offset filecontent) + di]
 		mov [(offset freqTableChars) + si], bl
 
+		; setting the corresponding count
 		mov al, 1
 		mov [(offset freqTableCount) + si], al
 
 		inc si
-		; loop l1
 		dec cx
 		jnz l1
 
 
+	; log error msg if the file couldn't be opened
 	openError:
 	  mov dx, offset log_OpenError
 		mov ah, 9
 		int 21h
 		jmp exit
-	
 
 
 	; DEBUG
@@ -167,20 +175,19 @@ proc buildSeqTable
 	call strlen
 	mov cx, ax
 	mov si, 0
+
 	l3:
-	  mov dl, [(offset freqTableCount) + si]
+		mov dl, [(offset freqTableCount) + si]
 		add dl, 48
-    mov ah, 2h
-    int 21h
+		mov ah, 2h
+		int 21h
 
 		inc si
 		dec cx
 		jnz l3
 
 	ret
-
 endp buildSeqTable
-
 
 
 END start
