@@ -123,8 +123,7 @@ proc buildSeqTable
 				dec cx
 				cmp cx, 0
 				jne l1
-				; ret
-				je hello ; DEBUG
+				ret
 
 		; current char doesn't exist in the freqTable
 		continue:
@@ -151,39 +150,6 @@ proc buildSeqTable
 		mov ah, 9
 		int 21h
 		jmp exit
-
-
-	; DEBUG
-	hello:
-	call strlen
-	mov cx, ax
-	mov si, 0
-	l4:
-	  mov dl, [(offset freqTableChars) + si]
-    mov ah, 2h
-    int 21h
-
-		inc si
-		dec cx
-		jnz l4
-
-	mov dl, 10
-  mov ah, 2h
-  int 21h
-
-	call strlen
-	mov cx, ax
-	mov si, 0
-
-	l3:
-		mov dl, [(offset freqTableCount) + si]
-		add dl, 48
-		mov ah, 2h
-		int 21h
-
-		inc si
-		dec cx
-		jnz l3
 
 	ret
 endp buildSeqTable
