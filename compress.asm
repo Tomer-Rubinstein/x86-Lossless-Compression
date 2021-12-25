@@ -1,14 +1,13 @@
+IDEAL
+MODEL small
+STACK 100h
+
 ; TODO:
 ;	[compress]
 ;	buildSeqTable (DONE)
 ;	buildMinHeap
 ;	buildEncodedTable
 ;	outCompFile
-
-
-IDEAL
-MODEL small
-STACK 100h
 
 DATASEG
 	filename db 'file.txt', 0
