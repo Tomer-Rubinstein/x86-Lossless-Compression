@@ -46,7 +46,7 @@ proc strlen
 	mov ax, 0
 	mov si, 0
 	strlen_l1:
-		mov bl, [(offset filecontent) + si] ; NOT FILENAME!!!!!!!!
+		mov bl, [(offset filecontent) + si]
 		cmp bl, 0
 		je strlen_end
 
@@ -137,8 +137,6 @@ proc buildSeqTable
 		dec cx
 		jnz l1
 
-
-	
 
 	openError:
 	  mov dx, offset log_OpenError
