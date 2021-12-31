@@ -31,6 +31,7 @@ start:
 exit:
 	mov ax, 4c00h
 	int 21h
+END start
 
 
 ; strlen procedure returns the length of the filecontent string in ax
@@ -38,6 +39,7 @@ exit:
 ; 	none
 ; returns:
 ; - ax, length of the string
+; [TODO] take string as parameter from the stack
 proc strlen
 	push si
 	push bx
@@ -153,6 +155,3 @@ proc buildSeqTable
 
 	ret
 endp buildSeqTable
-
-
-END start
