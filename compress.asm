@@ -48,7 +48,7 @@ proc buildFreqArr
 	int 21h
 
 	mov si, 0
-	l1:
+	loop_genFreqArr:
 		mov bx, 0
 		mov bl, [filecontent+si]
 		add bl, [filecontent+si] ; since freqArr is initialized as DW
@@ -56,7 +56,7 @@ proc buildFreqArr
 
 		inc si
 		cmp [filecontent+si], 0
-		jne l1
+		jne loop_genFreqArr
 
 	; close file
 	mov ah, 3Eh
