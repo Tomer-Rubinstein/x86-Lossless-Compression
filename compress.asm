@@ -3,11 +3,14 @@ MODEL small
 STACK 100h
 
 ; TODO:
-;	[compress]
-;	buildFreqArr (DONE)
-;	buildMinHeap
-;	buildEncodedTable
-;	outCompFile
+; [general]
+; 	[] decide canonical/non-canonical huffman code based encoder & decoder
+; [compress]
+;		[-] buildFreqArr
+;		[] buildCodebook
+;		[] outCompFile
+; [de-compress]
+; 	[] decompress
 
 DATASEG
 	filename db ?
@@ -35,10 +38,10 @@ exit:
 proc getFilename
 	; prompting the user to enter the filename
 	mov dx, offset log_InputFilename
-  mov ah, 9
-  int 21h
+	mov ah, 9
+	int 21h
 
-	; getting user input until the newline char (13, in ASCII)
+	; getting user input until the `enter` char (13, in ASCII)
 	mov si, 0
 	loop_getFilename:
 		mov ah, 1
@@ -95,7 +98,7 @@ proc buildFreqArr
 
 	; log error msg if the file couldn't be opened
 	openError:
-	  mov dx, offset log_OpenError
+		mov dx, offset log_OpenError
 		mov ah, 9
 		int 21h
 		jmp exit
