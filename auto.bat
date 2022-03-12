@@ -1,6 +1,6 @@
 @echo off
-:: execute ``auto`` to automate the compilation process
-:: execute ``auto clean`` to clear all output files
+: execute ``auto`` to automate the compilation process of compress.asm
+: execute ``auto clean`` to clear all output files
 
 set file=compress
 if NOT [%1]==[] if %1==clean goto :delFiles
