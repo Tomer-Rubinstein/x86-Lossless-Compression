@@ -13,8 +13,12 @@ DATASEG
 	freqChars dw 128 dup(0)
 	freqCharsCount dw 128 dup(0)
 
+	parentCount db 128
+	blockSize db 12
+	codebook db 2048 dup(2)
+
 	log_OpenError db '[ERROR] Program could not open the given file$'
-	log_InputFilename db 'Filename (include extension): $' 
+	log_InputFilename db 'Filename (include extension): $'
 
 
 CODESEG
@@ -24,11 +28,27 @@ start:
 
 	call buildFreqArr
 	call splitFreqArr
-	call findMins
+
+	mov ax, 97
+	mov bx, 1
+	mov cx, 128
+	push ax
+	push bx
+	push cx
+	call insertCodebook
+
+	mov ax, 128
+	mov bx, 0
+	mov cx, 129
+	push ax
+	push bx
+	push cx
+	call insertCodebook
 
 exit:
 	mov ax, 4c00h
 	int 21h
+
 
 ; [TODO] use buffered input instead
 ; proc getFilename prompts the user to enter a string representing
@@ -58,6 +78,7 @@ proc getFilename
 	end_getFilename:
 	ret
 endp getFilename
+
 
 ; proc buildFreqArr reads the content of filename (given) and stores
 ; each char's number of appearences at the corresponding index of that char.
@@ -150,6 +171,7 @@ proc splitFreqArr
 	ret
 endp splitFreqArr
 
+
 ; proc findMins returns the indexes of the 2 minimal values at freqCharsCount(array).
 ; params: null
 ; assumes: freqCharsCount
@@ -183,7 +205,7 @@ proc findMins
 		xor bx, bx
 		mov bl, 2
 		div bl
-		mov ah, 0 ; ax - first result
+		mov ah, 0 ; ⟹ ax - first result
 
 
 	xor si, si
@@ -213,7 +235,7 @@ proc findMins
 		div bl
 		mov ah, 0
 		xor cx, cx
-		mov cx, ax ; cx - second result
+		mov cx, ax ; ⟹ cx - second result
 		pop ax
 
 
@@ -250,6 +272,203 @@ proc findMins
 			add si, 2
 		jmp secondMinLoop
 endp findMins
+
+
+; proc addCells sums 2 cells in freqCharsCount by given indexes(params)
+; and zeros the grater index cell.
+; It also changes freqChars by zeroing the grater index, and incrementing parent count & replace (parentCount).
+; params:
+;	* al, the first index
+;	* ah, the second index
+; assumes: [freqChars], [freqCharsCount]
+; returns: null
+proc addCells
+	mov bp, sp
+
+	mov bx, [bp+2] ; i
+	mov si, [bp+4] ; j
+
+	; make it so: i < j
+	cmp bx, si
+	je exitAddCells
+	jl skipSwap
+	; i > j, swap
+	mov bx, [bp+4] ; i
+	mov si, [bp+2] ; j
+	skipSwap:
+	; converting bx to dw indexing
+	mov ax, bx
+	mov bx, 2
+	mul bx
+	mov bx, ax
+
+	; converting si to dw indexing
+	push bx
+	mov ax, si
+	mov bx, 2
+	mul bx
+	mov si, ax
+	pop bx
+
+	; sum freqCharsCount cells
+	mov dx, [freqCharsCount+si]
+	add [freqCharsCount+bx], dx
+	mov [freqCharsCount+si], 0FFh
+
+	; change freqChars
+	mov [freqChars+si], 0
+	xor dx, dx
+	mov dl, [parentCount]
+	mov [freqChars+bx], dx
+	inc [parentCount]
+
+	exitAddCells:
+	ret 4
+endp addCells
+
+
+; proc insertCodebook inserts/updates a (so called) data block into the codebook.
+; data block := {
+;		1 byte (ACSII char) ; 12 bytes (reversed huffman code) ; 1 byte (parent)
+; } 
+; * ASCII char -  represents the encoded char
+; * reversed huffman code - the huffman code generated in reversed order
+; * parent - the parent of that "node" (data block)
+; params:
+;	* [bp+2], parent no.
+;	* [bp+4], result bit (to insert to the huffman code)
+;	* [bp+6], the (ASCII) char huffman algorithm encodes in the process
+; assumes: [codebook], [blockSize] (size of the huffman code)
+; result: [codebook], As mentioned above.
+proc insertCodebook
+	mov bp, sp
+
+	mov ax, [bp+2] ; new parentCount = al
+	xor ah, ah
+	mov bx, [bp+4] ; result bit (0 or 1) = ah
+	mov ah, bl
+	xor bx, bx
+	mov bx, [bp+6] ; (ASCII) char = bl
+
+	cmp bl, 128
+	je incChilds
+
+	xor si, si
+	searchCodebook:
+		cmp [codebook+si], bl
+		je updateDataBlock ; if char in codebook, update data block
+		cmp si, 2048
+		jge initDataBlock ; else init a new data block
+
+		xor dx, dx
+		mov dl, [blockSize]
+
+		add si, dx
+		add si, 2
+		jmp searchCodebook
+
+	updateDataBlock:
+	push si ; head of data block
+	updateDataBlockLoop:
+		cmp [codebook+si], 2 ; only 12 bit-space
+		jne udb_iteration
+		mov [codebook+si], ah ; insert the new result bit
+
+		; going to the parentCount cell's index
+		pop si
+		xor dx, dx
+		mov dl, [blockSize]
+		add si, dx
+		add si, 1
+
+		; replacing the old parentCount with the new one
+		mov [codebook+si], al
+
+		jmp end_insertCodebook
+		udb_iteration:
+			inc si
+			jmp updateDataBlockLoop
+
+	jmp end_insertCodebook
+	; ----------
+	initDataBlock:
+	xor si, si
+
+	; finding the first available data block to insert to
+	searchPlace:
+		cmp [codebook+si], 2
+		je insertDataBlock
+
+		xor dx, dx
+		mov dl, [blockSize]
+
+		add si, dx
+		add si, 2
+
+	insertDataBlock:
+		mov [codebook+si], bl ; char
+		inc si
+		mov [codebook+si], ah ; result bit
+
+		xor dx, dx
+		mov dl, [blockSize]
+
+		add si, dx
+		mov [codebook+si], al ; new parent count
+
+
+	end_insertCodebook:
+	ret 6
+
+
+	incChilds:
+		mov si, -1
+
+		incChildsLoop:
+			xor dx, dx
+			mov dl, [blockSize]
+
+			; looping through the parents of each data block
+			add si, dx
+			add si, 2
+
+			; end of codebook
+			cmp si, 2048
+			jge end_insertCodebook
+
+			; found a match, add the result bit to the huffman code of that data block
+			cmp [codebook+si], bl
+			je addResultBit
+			
+			jmp incChildsLoop
+
+	; found a match for the parent, inserting the result bit in the correct cell of the result huffman code.
+	addResultBit:
+		push si ; saving si to search for other matches later on
+
+		; going back (dec index) in the codebook
+		addResultBitLoop:
+			cmp [codebook+si-1], 2 ; searching for an available cell
+			je ARB_iter
+
+			; found an available cell
+			mov [codebook+si], ah ; insert the result bit
+			pop si
+			jmp incChildsLoop ; searching for other matches...
+			
+			ARB_iter:
+			dec si
+			jmp addResultBitLoop
+endp insertCodebook
+
+
+proc buildCodebook
+	mov bp, sp
+
+
+
+	ret
+endp buildCodebook
 
 
 END start
