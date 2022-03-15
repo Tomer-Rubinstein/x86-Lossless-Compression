@@ -11,7 +11,7 @@ DATASEG
 
 	freqArr dw 128 dup(0)
 	freqChars dw 128 dup(0)
-	freqCharsCount dw 128 dup(0)
+	freqCharsCount dw 128 dup(-1)
 
 	parentCount db 128
 	blockSize db 12
@@ -29,21 +29,10 @@ start:
 	call buildFreqArr
 	call splitFreqArr
 
-	mov ax, 97
-	mov bx, 1
-	mov cx, 128
+	call findMins
 	push ax
-	push bx
 	push cx
-	call insertCodebook
-
-	mov ax, 128
-	mov bx, 0
-	mov cx, 129
-	push ax
-	push bx
-	push cx
-	call insertCodebook
+	call addCells
 
 exit:
 	mov ax, 4c00h
@@ -186,7 +175,7 @@ proc findMins
 
 	; finding the first minimal value's index from freqCharsCount (array, dw)
 	firstMinLoop:
-		cmp [freqCharsCount+si], 0
+		cmp [freqCharsCount+si], -1
 		je endFirstMin
 
 		mov cx, [(offset freqCharsCount)+si]
@@ -195,7 +184,7 @@ proc findMins
 		cmp cx, dx
 		jl newFirstMin
 
-		add si, 2 ; for loading dw
+		add si, 2 ; for dw indexing
 		jmp firstMinLoop
 
 	endFirstMin:
@@ -212,9 +201,13 @@ proc findMins
 	xor bx, bx
 	; finding the second minimal value's index from freqCharsCount (array, dw)
 	secondMinLoop:
-		cmp [freqCharsCount+si], 0
+		cmp [freqCharsCount+si], -1
 		je endSecondMin
 
+		cmp ax, bx
+		jne SML_continue
+		inc bx
+		SML_continue:
 		mov cx, [(offset freqCharsCount)+si]
 		mov dx, [(offset freqCharsCount)+bx]
 
@@ -234,7 +227,6 @@ proc findMins
 		mov bl, 2
 		div bl
 		mov ah, 0
-		xor cx, cx
 		mov cx, ax ; ⟹ cx - second result
 		pop ax
 
@@ -278,8 +270,8 @@ endp findMins
 ; and zeros the grater index cell.
 ; It also changes freqChars by zeroing the grater index, and incrementing parent count & replace (parentCount).
 ; params:
-;	* al, the first index
-;	* ah, the second index
+;	* [bp+2], the first index
+;	* [bp+4], the second index
 ; assumes: [freqChars], [freqCharsCount]
 ; returns: null
 proc addCells
@@ -295,6 +287,7 @@ proc addCells
 	; i > j, swap
 	mov bx, [bp+4] ; i
 	mov si, [bp+2] ; j
+
 	skipSwap:
 	; converting bx to dw indexing
 	mov ax, bx
@@ -310,6 +303,14 @@ proc addCells
 	mov si, ax
 	pop bx
 
+	; if we are summing a parent node(s)
+	cmp [freqChars+bx], 128
+	jge incParentCount
+
+	cmp [freqChars+si], 128
+	jge incParentCount
+
+
 	; sum freqCharsCount cells
 	mov dx, [freqCharsCount+si]
 	add [freqCharsCount+bx], dx
@@ -321,6 +322,16 @@ proc addCells
 	mov dl, [parentCount]
 	mov [freqChars+bx], dx
 	inc [parentCount]
+
+	incParentCount:
+		inc [parentCount]
+		xor dx, dx
+		mov dl, [parentCount]
+		mov [freqChars+bx], dx
+		mov [freqChars+si], 0
+		mov dx, [freqCharsCount+si]
+		add [freqCharsCount+bx], dx
+		jmp exitAddCells
 
 	exitAddCells:
 	ret 4
@@ -465,7 +476,11 @@ endp insertCodebook
 proc buildCodebook
 	mov bp, sp
 
+	bc_loop:
 
+
+
+		jmp bc_loop
 
 	ret
 endp buildCodebook
