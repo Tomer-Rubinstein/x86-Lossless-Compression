@@ -28,11 +28,7 @@ start:
 
 	call buildFreqArr
 	call splitFreqArr
-
-	call findMins
-	push ax
-	push cx
-	call addCells
+	call buildCodebook
 
 exit:
 	mov ax, 4c00h
@@ -310,7 +306,6 @@ proc addCells
 	cmp [freqChars+si], 128
 	jge incParentCount
 
-
 	; sum freqCharsCount cells
 	mov dx, [freqCharsCount+si]
 	add [freqCharsCount+bx], dx
@@ -323,6 +318,7 @@ proc addCells
 	mov [freqChars+bx], dx
 	inc [parentCount]
 
+	jmp exitAddCells
 	incParentCount:
 		inc [parentCount]
 		xor dx, dx
@@ -331,6 +327,7 @@ proc addCells
 		mov [freqChars+si], 0
 		mov dx, [freqCharsCount+si]
 		add [freqCharsCount+bx], dx
+		mov [freqCharsCount+si], 0FFh
 		jmp exitAddCells
 
 	exitAddCells:
@@ -361,8 +358,8 @@ proc insertCodebook
 	xor bx, bx
 	mov bx, [bp+6] ; (ASCII) char = bl
 
-	cmp bl, 128
-	je incChilds
+	cmp bl, 80h
+	jle incChilds
 
 	xor si, si
 	searchCodebook:
@@ -415,6 +412,7 @@ proc insertCodebook
 
 		add si, dx
 		add si, 2
+		jmp searchPlace
 
 	insertDataBlock:
 		mov [codebook+si], bl ; char
@@ -427,14 +425,11 @@ proc insertCodebook
 		add si, dx
 		mov [codebook+si], al ; new parent count
 
-
 	end_insertCodebook:
 	ret 6
-
-
+	; ----------
 	incChilds:
 		mov si, -1
-
 		incChildsLoop:
 			xor dx, dx
 			mov dl, [blockSize]
@@ -456,8 +451,9 @@ proc insertCodebook
 	; found a match for the parent, inserting the result bit in the correct cell of the result huffman code.
 	addResultBit:
 		push si ; saving si to search for other matches later on
+		mov [codebook+si], al
 
-		; going back (dec index) in the codebook
+		; iterating backwards (dec index) in the codebook
 		addResultBitLoop:
 			cmp [codebook+si-1], 2 ; searching for an available cell
 			je ARB_iter
@@ -473,15 +469,118 @@ proc insertCodebook
 endp insertCodebook
 
 
+; proc getFreqLength returns the number of non-nullable chars in the frequency table.
+; It does that by rather using the [freqCharsCount] array instead of the [freqChars].
+; params: null
+; assumes: [freqCharsCount]
+; returns: dx - the wanted length
+proc getFreqLength
+	mov bp, sp
+
+	xor dx, dx
+	xor si, si
+	GFL_loop:
+		cmp [freqCharsCount+si], -1
+		je GFL_end
+
+		cmp [freqCharsCount+si], 0FFh
+		je GFL_iter
+
+		inc dx
+
+		GFL_iter:
+			add si, 2
+			jmp GFL_loop
+
+	GFL_end:
+	ret
+endp getFreqLength
+
+
+; proc buildCodebook generates the huffman codebook for the given file.
+; This procedure is the "conductor" of this project, it builds the codebook using the other needed procedures.
+; params: null
+; assumes: [codebook], [freqCharsCount], [freqChars], [parentCount], proc getFreqLength, proc findMins, proc insertCodebook, proc addCells
+; result: [codebook], the wanted huffman codebook
 proc buildCodebook
 	mov bp, sp
 
-	bc_loop:
+	BC_loop:
+		; until 1 node is left
+		call getFreqLength
+		cmp dx, 1
+		je end_buildCodebook
 
+		; finding the two minimums
+		call findMins
+		mov bx, ax ; i
+		mov si, cx ; j
 
+		; converting to dw indexing
+		push ax
+		mov ax, bx
+		xor bx, bx
+		mov bx, 2
+		mul bx
+		mov bx, ax
 
-		jmp bc_loop
+		mov ax, si
+		push bx
+		xor bx, bx
+		mov bx, 2
+		mul bx
+		mov si, ax
+		pop bx
+		pop ax
 
+		; inserting to the codebook
+		; finding the cell with the higher frequency and assign it's value to si
+		; the other cell goes to bx
+		mov dx, [freqCharsCount+bx]
+		cmp dx, [freqCharsCount+si]
+		jle BC_loop_continue
+		tmp equ bx
+		mov bx, si
+		mov si, tmp
+
+		BC_loop_continue:
+		push ax
+		push bx
+		push cx
+		; bx gets 1 as result bit
+		push si
+		mov ax, [freqChars+bx]
+		xor bx, bx
+		mov bx, 1
+		xor cx, cx
+		mov cl, [parentCount]
+		push ax
+		push bx
+		push cx
+		call insertCodebook
+		pop si
+
+		; si gets 0 as result bit
+		mov ax, [freqChars+si]
+		xor bx, bx
+		xor cx, cx
+		mov cl, [parentCount]
+		push ax
+		push bx
+		push cx
+		call insertCodebook
+
+		; adding the cells
+		pop cx
+		pop bx
+		pop ax
+		push ax
+		push cx
+		call addCells
+
+		jmp BC_loop
+
+	end_buildCodebook:
 	ret
 endp buildCodebook
 
