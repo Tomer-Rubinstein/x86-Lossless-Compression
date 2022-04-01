@@ -4,9 +4,11 @@ STACK 100h
 
 
 DATASEG
-	filename db 'file.txt', 0 ; debug
+	filename db 'compressed.hf', 0
+	inputFilename db 'file.txt', 0 ; debug
 	filename_len dw ?
 	filehandle dw ?
+	newFilehandle dw ?
 	filecontent db 1200 dup(0) ; debug
 
 	freqArr dw 128 dup(0)
@@ -19,6 +21,7 @@ DATASEG
 
 	log_OpenError db '[ERROR] Program could not open the given file$'
 	log_InputFilename db 'Filename (include extension): $'
+	byteToWrite db ?
 
 
 CODESEG
@@ -29,6 +32,7 @@ start:
 	call buildFreqArr
 	call splitFreqArr
 	call buildCodebook
+	call tidyCodebook
 
 exit:
 	mov ax, 4c00h
@@ -55,7 +59,7 @@ proc getFilename
 		cmp al, 13
 		je end_getFilename
 
-		mov [filename+si], al
+		mov [inputFilename+si], al
 
 		inc si
 		jmp loop_getFilename
@@ -75,7 +79,7 @@ proc buildFreqArr
 	; open file
 	mov ah, 3Dh
 	xor al, al
-	lea dx, [filename]
+	lea dx, [inputFilename]
 	int 21h
 	jc openError
 	mov [filehandle], ax
@@ -166,6 +170,10 @@ endp splitFreqArr
 proc findMins
 	mov bp, sp
 
+	call getFreqLength
+	cmp dx, 2
+	je singleTwoMins
+
 	xor si, si
 	xor bx, bx
 
@@ -226,9 +234,9 @@ proc findMins
 		mov cx, ax ; ⟹ cx - second result
 		pop ax
 
-
-	; ----------
+	endFindMins:
 	ret
+	; ----------
 	newFirstMin:
 		; found a new minimal value, update bx and iterate.
 		mov bx, si
@@ -259,6 +267,55 @@ proc findMins
 		skipNewMin:
 			add si, 2
 		jmp secondMinLoop
+
+	; ----------
+	ret
+	singleTwoMins:
+	xor si, si
+	xor bx, bx ; count
+
+	singleTwoMins_loop:
+		cmp [freqCharsCount+si], -1
+		je endFindMins
+
+		mov dx, [(offset freqCharsCount)+si]
+		cmp dx, 0FFh
+		jne newSingleMin
+
+		add si, 2
+		jmp singleTwoMins_loop
+
+	newSingleMin:
+		cmp bx, 0
+		je new_firstSingleMin
+		cmp bx, 1
+		je new_secondSingleMin
+
+	new_firstSingleMin:
+		push bx
+		mov ax, si
+		mov bl, 2
+		div bl
+		mov ah, 0
+		pop bx
+		
+		inc bx
+		add si, 2
+
+		jmp singleTwoMins_loop
+
+	new_secondSingleMin:
+		push bx
+		push ax
+		mov ax, si
+		mov bl, 2
+		div bl
+		mov ah, 0
+		mov cx, ax
+		pop ax
+		pop bx
+
+		jmp endFindMins
 endp findMins
 
 
@@ -316,11 +373,11 @@ proc addCells
 	xor dx, dx
 	mov dl, [parentCount]
 	mov [freqChars+bx], dx
-	inc [parentCount]
+	; inc [parentCount]
 
 	jmp exitAddCells
 	incParentCount:
-		inc [parentCount]
+		; inc [parentCount]
 		xor dx, dx
 		mov dl, [parentCount]
 		mov [freqChars+bx], dx
@@ -359,14 +416,14 @@ proc insertCodebook
 	mov bx, [bp+6] ; (ASCII) char = bl
 
 	cmp bl, 80h
-	jle incChilds
+	jae incChilds
 
 	xor si, si
 	searchCodebook:
-		cmp [codebook+si], bl
-		je updateDataBlock ; if char in codebook, update data block
 		cmp si, 2048
 		jge initDataBlock ; else init a new data block
+		cmp [codebook+si], bl
+		je updateDataBlock ; if char in codebook, update data block
 
 		xor dx, dx
 		mov dl, [blockSize]
@@ -531,6 +588,7 @@ proc buildCodebook
 		mul bx
 		mov si, ax
 		pop bx
+		
 		pop ax
 
 		; inserting to the codebook
@@ -539,14 +597,15 @@ proc buildCodebook
 		mov dx, [freqCharsCount+bx]
 		cmp dx, [freqCharsCount+si]
 		jle BC_loop_continue
-		tmp equ bx
+		mov dx, bx ; tmp
 		mov bx, si
-		mov si, tmp
+		mov si, dx
 
 		BC_loop_continue:
 		push ax
 		push bx
 		push cx
+
 		; bx gets 1 as result bit
 		push si
 		mov ax, [freqChars+bx]
@@ -554,9 +613,9 @@ proc buildCodebook
 		mov bx, 1
 		xor cx, cx
 		mov cl, [parentCount]
-		push ax
-		push bx
-		push cx
+		push ax ; [bp+6] = bl = char
+		push bx ; [bp+4] = ah = bit
+		push cx ; [bp+2] = al = count
 		call insertCodebook
 		pop si
 
@@ -565,9 +624,9 @@ proc buildCodebook
 		xor bx, bx
 		xor cx, cx
 		mov cl, [parentCount]
-		push ax
-		push bx
-		push cx
+		push ax ; [bp+6] = bl = char
+		push bx ; [bp+4] = ah = bit
+		push cx ; [bp+2] = al = count
 		call insertCodebook
 
 		; adding the cells
@@ -577,12 +636,69 @@ proc buildCodebook
 		push ax
 		push cx
 		call addCells
+		inc [parentCount]
 
 		jmp BC_loop
 
 	end_buildCodebook:
+
 	ret
 endp buildCodebook
+
+
+proc tidyCodebook
+	mov bp, sp
+
+	; reverse the huffman code of each data block
+	xor si, si
+	l1:
+		cmp [codebook+si], 2
+		je end_reverseHuffman
+
+		mov bx, si
+		; find the index tail of the huffman code = bx
+		l2:
+			cmp [codebook+bx+1], 2
+			je end_l2
+
+			inc bx
+			jmp l2
+		end_l2:
+		push si
+		inc si
+		; si < bx
+		l3:
+			cmp si, bx
+			jge end_l3
+
+			mov al, [codebook+bx]
+			mov ah, [codebook+si]
+			mov [codebook+bx], ah
+			mov [codebook+si], al
+
+			inc si
+			dec bx
+			jmp l3
+		
+		end_l3:
+		pop si
+
+		xor ax, ax
+		mov al, [blockSize]
+		add si, ax
+		add si, 2
+		jmp l1
+
+	end_reverseHuffman:
+	ret
+endp tidyCodebook
+
+
+proc outputFile
+	mov bp, sp
+
+	ret
+endp outputFile
 
 
 END start
