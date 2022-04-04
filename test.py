@@ -4,7 +4,8 @@ with open('compress.hf', 'rb') as file:
   while True:
     try:
       byte = file.read(1)
-      print('{0:08b}'.format(ord(byte)))
+      print('{0:08b}'.format(ord(byte)), end="\t")
+      print(byte)
     except:
       break
   file.close()
