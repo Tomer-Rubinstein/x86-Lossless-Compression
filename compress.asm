@@ -21,9 +21,10 @@ DATASEG
 
 	log_OpenError db '[ERROR] Program could not open the given file$'
 	log_InputFilename db 'Filename (include extension): $'
-	byteToWrite db ?
+	byteToWrite db 0
 
 
+; [TODO] close the file handles
 CODESEG
 start:
 	mov ax, @data
@@ -33,6 +34,17 @@ start:
 	call splitFreqArr
 	call buildCodebook
 	call tidyCodebook
+
+	; create new file named after [filename]
+	mov ah, 3Ch
+	xor cx, cx
+	mov dx, offset filename
+	int 21h
+	mov [newFilehandle], ax	; save new file handle
+
+	; [TODO] output codebook
+	call outputHuffmanCode
+	; [TODO] output info (padding, no. of huffman bits in the final byte, ...)
 
 exit:
 	mov ax, 4c00h
@@ -97,7 +109,6 @@ proc buildFreqArr
 	loop_genFreqArr:
 		mov bx, 0
 		mov bl, [filecontent+si]
-		; add bl, [filecontent+si] ; since freqArr is initialized as DW
 		inc [freqArr+bx]
 
 		inc si
@@ -646,6 +657,11 @@ proc buildCodebook
 endp buildCodebook
 
 
+; proc tidyCodebook reverses all of the huffman codes of each char in the codebook
+; since the compression process inserts the huffman codes in reversed order.
+; params: null
+; assumes: [codebook], [blockSize]
+; result: reversed huffman codes in [codebook]
 proc tidyCodebook
 	mov bp, sp
 
@@ -694,11 +710,87 @@ proc tidyCodebook
 endp tidyCodebook
 
 
-proc outputFile
+; proc outputByte outputs a single byte, [byteToWrite] to the compressed file
+; params: null
+; assumes: [newFilehandle], [byteToWrite]
+; result: [byteToWrite] >> [newFilehandle] (compressed file)
+proc outputByte
 	mov bp, sp
 
-	ret
-endp outputFile
+	; output [byteToWrite] to the compressed file
+	mov ah, 40h
+	mov bx, [newFilehandle]
+	mov cx, 1
+	mov dx, offset byteToWrite
+	int 21h
 
+	ret
+endp outputByte
+
+
+; proc outputHuffmanCode outputs the huffman codes (in the same order as input filecontent)
+; to the compressed file.
+; params: null
+; assumes: [filecontent], [codebook], [blockSize], proc outputByte
+proc outputHuffmanCode
+	mov bp, sp
+
+	xor si, si ; index
+	xor dx, dx ; bits count
+	t1:
+		xor cx, cx
+		mov cl, [filecontent+si]
+
+		; lookup bl char in the codebook
+		xor bx, bx
+		t2:
+			cmp [codebook+bx], cl
+			je end_t2
+
+			add bx, 2
+			add bl, [blockSize]
+			jmp t2
+		end_t2:
+		; now read the huffman code and append to [byteToWrite]
+		inc bx
+		t3:
+			cmp dx, 8 ; byteToWrite is full
+			je writeByte
+			cmp [codebook+bx], 2
+			je end_t3 ; done writing the huffman code to [byteToWrite]
+
+			; append huffman code bit-by-bit to [byteToWrite]
+			mov al, [codebook+bx]
+			shl [byteToWrite], 1
+			add [byteToWrite], al
+
+			inc dx ; bits count
+			inc bx
+			jmp t3
+		end_t3:
+		inc si
+		cmp [filecontent+si], 0 ; read until the null terminator
+		jne t1
+
+	; output the final byte
+	mov ax, 8
+	sub ax, dx ; bits count
+
+	finalByte:
+		shl [byteToWrite], 1
+		dec ax
+		cmp ax, 0
+		jne finalByte
+
+	call outputByte
+	ret
+	writeByte:
+		push bx
+		call outputByte
+		mov [byteToWrite], 0
+		xor dx, dx
+		pop bx
+		jmp t3
+endp outputHuffmanCode
 
 END start
