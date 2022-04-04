@@ -4,7 +4,7 @@ STACK 100h
 
 
 DATASEG
-	filename db 'compressed.hf', 0
+	filename db 'compressed.hf', 0 ; debug
 	inputFilename db 'file.txt', 0 ; debug
 	filename_len dw ?
 	filehandle dw ?
@@ -16,12 +16,13 @@ DATASEG
 	freqCharsCount dw 128 dup(-1)
 
 	parentCount db 128
-	blockSize db 12
+	blockSize db 8
 	codebook db 2048 dup(2)
 
 	log_OpenError db '[ERROR] Program could not open the given file$'
 	log_InputFilename db 'Filename (include extension): $'
 	byteToWrite db 0
+	bitsCount db 0
 
 
 ; [TODO] close the file handles
@@ -42,9 +43,34 @@ start:
 	int 21h
 	mov [newFilehandle], ax	; save new file handle
 
-	; [TODO] output codebook
-	call outputHuffmanCode
+	call outputCodebook
+
+	; output huffman codes
+	mov [bitsCount], 0
+	mov [byteToWrite], 0
+	xor si, si
+	ofc_loop:
+		xor cx, cx
+		mov cl, [filecontent+si]
+		push si
+		push cx
+		call outputHuffmanCode
+		pop si
+		inc si
+		cmp [filecontent+si], 0
+		jne ofc_loop
+	; output the final byte
+	mov ax, 8
+	sub al, [bitsCount] ; bits count
+	_finalByte:
+		shl [byteToWrite], 1
+		dec ax
+		cmp ax, 0
+		jne _finalByte
+	call outputByte
+
 	; [TODO] output info (padding, no. of huffman bits in the final byte, ...)
+
 
 exit:
 	mov ax, 4c00h
@@ -730,67 +756,90 @@ endp outputByte
 
 ; proc outputHuffmanCode outputs the huffman codes (in the same order as input filecontent)
 ; to the compressed file.
-; params: null
+; params: [bp+2], char to output it's huffman code to the output file
 ; assumes: [filecontent], [codebook], [blockSize], proc outputByte
 proc outputHuffmanCode
 	mov bp, sp
+	mov cx, [bp+2] ; cl - holds the char
 
 	xor si, si ; index
-	xor dx, dx ; bits count
-	t1:
-		xor cx, cx
-		mov cl, [filecontent+si]
 
-		; lookup bl char in the codebook
-		xor bx, bx
-		t2:
-			cmp [codebook+bx], cl
-			je end_t2
+	; lookup cl char in the codebook
+	xor bx, bx
+	t2:
+		cmp [codebook+bx], cl
+		je end_t2
 
-			add bx, 2
-			add bl, [blockSize]
-			jmp t2
-		end_t2:
-		; now read the huffman code and append to [byteToWrite]
-		inc bx
-		t3:
-			cmp dx, 8 ; byteToWrite is full
-			je writeByte
-			cmp [codebook+bx], 2
-			je end_t3 ; done writing the huffman code to [byteToWrite]
+		add bx, 2
+		add bl, [blockSize]
+		jmp t2
+	end_t2:
 
-			; append huffman code bit-by-bit to [byteToWrite]
-			mov al, [codebook+bx]
-			shl [byteToWrite], 1
-			add [byteToWrite], al
+	; now read the huffman code and append to [byteToWrite]
+	inc bx
+	t3:
+		cmp [bitsCount], 8 ; byteToWrite is full
+		je writeByte
+		cmp [codebook+bx], 2
+		je end_t3 ; done writing the huffman code to [byteToWrite]
 
-			inc dx ; bits count
-			inc bx
-			jmp t3
-		end_t3:
-		inc si
-		cmp [filecontent+si], 0 ; read until the null terminator
-		jne t1
-
-	; output the final byte
-	mov ax, 8
-	sub ax, dx ; bits count
-
-	finalByte:
+		; append huffman code bit-by-bit to [byteToWrite]
+		mov al, [codebook+bx]
 		shl [byteToWrite], 1
-		dec ax
-		cmp ax, 0
-		jne finalByte
+		add [byteToWrite], al
 
-	call outputByte
-	ret
+		inc [bitsCount] ; bits count
+		inc bx
+		jmp t3
+	end_t3:
+
+	ret 2
 	writeByte:
 		push bx
 		call outputByte
 		mov [byteToWrite], 0
-		xor dx, dx
+		mov [bitsCount], 0
 		pop bx
 		jmp t3
 endp outputHuffmanCode
+
+
+; proc outputCodebooks outputs the codebook to the output file, as following:
+; |(char as BYTE) (huffman code of that char as BYTE)| ...
+; params: null
+; assumes: [codebook], proc outputHuffmanCode
+proc outputCodebook
+	mov bp, sp
+
+	xor bx, bx
+	oc_loop:
+		xor ch, ch
+		mov cl, [codebook+bx]
+		mov [byteToWrite], cl
+		push bx
+		push cx
+		call outputByte ; write char as *byte* to output file
+		mov [bitsCount], 0
+		call outputHuffmanCode 	; write the huffman code of that char to the output file
+		; output the final byte
+		mov ax, 8
+		sub al, [bitsCount] ; bits count
+		finalByte:
+			shl [byteToWrite], 1
+			dec ax
+			cmp ax, 0
+			jne finalByte
+		call outputByte
+
+		mov [byteToWrite], 0
+		; skip to the next char in the codebook
+		pop bx
+		add bx, 2
+		add bl, [blockSize]
+		cmp [codebook+bx], 2
+		jne oc_loop
+
+	ret
+endp outputCodebook
 
 END start
