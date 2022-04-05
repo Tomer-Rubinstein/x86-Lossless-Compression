@@ -3,3 +3,6 @@ compress.map
 compress.obj
 *.tr
 *.td
+
+*.hf
+*.txt
