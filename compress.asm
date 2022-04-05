@@ -69,8 +69,29 @@ start:
 		jne _finalByte
 	call outputByte
 
-	; [TODO] output info (padding, no. of huffman bits in the final byte, ...)
+	; output length of codebook
+	xor bx, bx
+	xor si, si
+	lc_loop:
+		cmp [codebook+si], 2
+		je end_lc_loop
 
+		inc bx
+
+		add si, 2
+		xor dx, dx
+		mov dl, [blockSize]
+		add si, dx
+		jmp lc_loop
+	end_lc_loop:
+	; bx now holds the number of different chars in the given text
+	mov ax, bx
+	xor bx, bx
+	mov bl, 2
+	mul bl
+	; ax now holds the length of the codebook
+	mov [byteToWrite], al
+	call outputByte
 
 exit:
 	mov ax, 4c00h
