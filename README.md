@@ -10,15 +10,5 @@ Install DOSBox [here](http://data.cyber.org.il/assembly/dosbox.exe) (not tested 
 To build the executable file:
 ```bash
 cd x86-Lossless-Compression
-auto
-```
-
-To compress a file:
-```
-compress FILENAME
-```
-
-to extract a given compressed file:
-```
-compress FILENAME extract
+auto compress
 ```
