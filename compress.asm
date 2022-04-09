@@ -4,8 +4,9 @@ STACK 100h
 
 
 DATASEG
-	filename db 'compressed.hf', 0 ; debug
+	filename db 'compress.hf', 0 ; debug
 	inputFilename db 'file.txt', 0 ; debug
+	outputFilename db 'output.txt', 0 ; debug
 	filename_len dw ?
 	filehandle dw ?
 	newFilehandle dw ?
@@ -25,73 +26,10 @@ DATASEG
 	bitsCount db 0
 
 
-; [TODO] close the file handles
 CODESEG
 start:
 	mov ax, @data
 	mov ds, ax
-
-	call buildFreqArr
-	call splitFreqArr
-	call buildCodebook
-	call tidyCodebook
-
-	; create new file named after [filename]
-	mov ah, 3Ch
-	xor cx, cx
-	mov dx, offset filename
-	int 21h
-	mov [newFilehandle], ax	; save new file handle
-
-	call outputCodebook
-
-	; output huffman codes
-	mov [bitsCount], 0
-	mov [byteToWrite], 0
-	xor si, si
-	ofc_loop:
-		xor cx, cx
-		mov cl, [filecontent+si]
-		push si
-		push cx
-		call outputHuffmanCode
-		pop si
-		inc si
-		cmp [filecontent+si], 0
-		jne ofc_loop
-	; output the final byte
-	mov ax, 8
-	sub al, [bitsCount] ; bits count
-	_finalByte:
-		shl [byteToWrite], 1
-		dec ax
-		cmp ax, 0
-		jne _finalByte
-	call outputByte
-
-	; output length of codebook
-	xor bx, bx
-	xor si, si
-	lc_loop:
-		cmp [codebook+si], 2
-		je end_lc_loop
-
-		inc bx
-
-		add si, 2
-		xor dx, dx
-		mov dl, [blockSize]
-		add si, dx
-		jmp lc_loop
-	end_lc_loop:
-	; bx now holds the number of different chars in the given text
-	mov ax, bx
-	xor bx, bx
-	mov bl, 2
-	mul bl
-	; ax now holds the length of the codebook
-	mov [byteToWrite], al
-	call outputByte
 
 exit:
 	mov ax, 4c00h
@@ -664,11 +602,11 @@ proc buildCodebook
 		push bx
 		push cx
 
-		; bx gets 1 as result bit
+		; bx gets 0 as result bit
 		push si
 		mov ax, [freqChars+bx]
 		xor bx, bx
-		mov bx, 1
+		mov bx, 0
 		xor cx, cx
 		mov cl, [parentCount]
 		push ax ; [bp+6] = bl = char
@@ -680,6 +618,7 @@ proc buildCodebook
 		; si gets 0 as result bit
 		mov ax, [freqChars+si]
 		xor bx, bx
+		mov bx, 1
 		xor cx, cx
 		mov cl, [parentCount]
 		push ax ; [bp+6] = bl = char
@@ -841,17 +780,14 @@ proc outputCodebook
 		push cx
 		call outputByte ; write char as *byte* to output file
 		mov [bitsCount], 0
-		call outputHuffmanCode 	; write the huffman code of that char to the output file
-		; output the final byte
-		mov ax, 8
-		sub al, [bitsCount] ; bits count
-		finalByte:
-			shl [byteToWrite], 1
-			dec ax
-			cmp ax, 0
-			jne finalByte
+		mov [byteToWrite], 0
+		call outputHuffmanCode
+		
+		cmp [bitsCount], 0
+		je skip_output_byte
 		call outputByte
 
+		skip_output_byte:
 		mov [byteToWrite], 0
 		; skip to the next char in the codebook
 		pop bx
@@ -862,5 +798,242 @@ proc outputCodebook
 
 	ret
 endp outputCodebook
+
+
+proc compress
+	mov bp, sp
+
+	call buildFreqArr
+	call splitFreqArr
+	call buildCodebook
+	call tidyCodebook
+
+	; create new file named after [filename]
+	mov ah, 3Ch
+	xor cx, cx
+	mov dx, offset filename
+	int 21h
+	mov [newFilehandle], ax	; save new file handle
+
+	; output length of codebook
+	xor bx, bx
+	xor si, si
+	lc_loop:
+		cmp [codebook+si], 2
+		je end_lc_loop
+
+		inc bx
+
+		add si, 2
+		xor dx, dx
+		mov dl, [blockSize]
+		add si, dx
+		jmp lc_loop
+	end_lc_loop:
+	; bx now holds the number of different chars in the given text
+	mov ax, bx
+	xor bx, bx
+	mov bl, 2
+	mul bl
+	; ax now holds the length of the codebook
+	mov [byteToWrite], al
+	call outputByte
+
+	call outputCodebook
+
+	; output huffman codes
+	mov [bitsCount], 0
+	mov [byteToWrite], 0
+	xor si, si
+	ofc_loop:
+		xor cx, cx
+		mov cl, [filecontent+si]
+		push si
+		push cx
+		call outputHuffmanCode
+		pop si
+		inc si
+		cmp [filecontent+si], 0
+		jne ofc_loop
+	; output the final byte
+	mov ax, 8
+	sub al, [bitsCount] ; bits count
+	_finalByte:
+		shl [byteToWrite], 1
+		dec ax
+		cmp ax, 0
+		jne _finalByte
+	call outputByte
+
+	; close the file handles
+	mov ah, 3Eh
+	mov bx, [newFilehandle]
+	int 21h
+
+	mov ah, 3Eh
+	mov bx, [filehandle]
+	int 21h
+
+	ret
+endp compress
+
+
+proc findPattern
+	mov bp, sp
+
+	mov ax, [bp+2]
+	
+	xor si, si
+	fp_loop:
+		cmp [codebook+si+1], al
+		je found
+		cmp [codebook+si], 2 ; end-of-codebook
+		je notFound
+
+		xor bx, bx
+		mov bl, [blockSize]
+		add si, bx
+
+		add si, 2
+		jmp fp_loop
+
+	found:
+		xor ax, ax
+		mov al, [codebook+si]
+	ret 2
+	notFound:
+		mov ax, 0
+	ret 2
+endp findPattern
+
+
+proc decompress
+	mov bp, sp
+
+	; create new file named after [outputFilename]
+	mov ah, 3Ch
+	xor cx, cx
+	mov dx, offset outputFilename
+	int 21h
+	mov [newFilehandle], ax	; save new file handle
+
+	; open file
+	mov ah, 3Dh
+	xor al, al
+	lea dx, [filename]
+	int 21h
+	jnc continue_decompress
+	
+	; log error msg if the file couldn't be opened
+	mov dx, offset log_OpenError
+	mov ah, 9
+	int 21h
+	mov ax, 4c00h
+	int 21h
+
+	continue_decompress:
+	mov [filehandle], ax
+
+	; read file and store content in filecontent
+	mov ah, 3Fh
+	mov bx, [filehandle]
+	mov cx, 1200
+	mov dx, offset filecontent
+	int 21h
+
+	xor dx, dx
+	mov dl, [filecontent+0] ; dl := length[codebook]
+	inc dl ; for 1..n indexing
+
+	xor si, si
+	inc si ; for reading the codebook
+	; insert the codebook from the file to [codebook]
+	df_loop:
+		cmp si, dx ; end-of-codebook
+		jae end_df_loop
+		push dx
+		push si
+
+		xor ax, ax
+		xor bx, bx
+		xor cx, cx
+		mov al, [filecontent+si]
+		mov bl, [filecontent+si+1]
+		mov cl, [parentCount]
+		push ax
+		push bx
+		push cx
+		call insertCodebook
+
+		pop si
+		pop dx
+		add si, 2
+		jmp df_loop
+	end_df_loop:
+
+	; although si=start-of-huffman, for safety use, re-calculate
+	; the start index of the huffman code
+	xor bx, bx
+	mov bl, [filecontent+0]
+	inc bx
+	xor cx, cx ; curr pattern
+	dc_loop:
+		mov al, [filecontent+bx]
+		cmp al, 5 ; EOF
+		je end_dc_loop
+
+		; lookup current huffman code
+		xor dx, dx ; bit count
+		f1:
+			cmp dx, 8 ; done with this byte
+			je end_f1
+			; [TODO]
+			; cmp si, ORG_FILECONTENT_LENGTH
+			; je end_dc_loop
+
+			; add 1 or 0 to the LSB of cx
+			shl cx, 1
+			clc
+			shl al, 1
+			push ax
+			jnc f1_continue
+			
+			add cx, 1
+			f1_continue:
+				push bx
+				push dx
+				push cx
+
+				; lookup the pattern cx represents in the codebook
+				push cx
+				call findPattern
+
+				; pattern not found, need more bits to determine
+				cmp ax, 0
+				jz f1_iter
+
+				; pattern found, output to the result file
+				mov [byteToWrite], al
+				call outputByte
+				; search for a new pattern
+				pop cx
+				xor cx, cx
+				jmp keep_cx
+			f1_iter:
+				pop cx
+				keep_cx:
+				pop dx
+				pop bx
+				pop ax
+
+				inc dx
+				jmp f1
+		end_f1:
+		inc bx
+		jmp dc_loop
+	end_dc_loop:
+
+	ret
+endp decompress
 
 END start
