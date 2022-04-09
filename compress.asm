@@ -10,7 +10,7 @@ DATASEG
 	filename_len dw ?
 	filehandle dw ?
 	newFilehandle dw ?
-	filecontent db 1200 dup(0) ; debug
+	filecontent db 1400 dup(0) ; debug
 
 	freqArr dw 128 dup(0)
 	freqChars dw 128 dup(0)
@@ -30,6 +30,8 @@ CODESEG
 start:
 	mov ax, @data
 	mov ds, ax
+
+	call compress
 
 exit:
 	mov ax, 4c00h
@@ -206,7 +208,7 @@ proc findMins
 
 		cmp ax, bx
 		jne SML_continue
-		inc bx
+		add bx, 2
 		SML_continue:
 		mov cx, [(offset freqCharsCount)+si]
 		mov dx, [(offset freqCharsCount)+bx]
@@ -636,7 +638,6 @@ proc buildCodebook
 		inc [parentCount]
 
 		jmp BC_loop
-
 	end_buildCodebook:
 
 	ret
