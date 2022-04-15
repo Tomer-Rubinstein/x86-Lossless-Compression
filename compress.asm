@@ -159,7 +159,7 @@ proc splitFreqArr
 endp splitFreqArr
 
 
-; proc findMins returns the indexes of the 2 minimal values at freqCharsCount(array).
+; proc findMins returns the indexes of the 2 minimal values at freqCharsCount(word array).
 ; params: null
 ; assumes: freqCharsCount
 ; returns:
@@ -168,152 +168,52 @@ endp splitFreqArr
 proc findMins
 	mov bp, sp
 
-	call getFreqLength
-	cmp dx, 2
-	je singleTwoMins
-
 	xor si, si
 	xor bx, bx
+	xor di, di
 
-	; finding the first minimal value's index from freqCharsCount (array, dw)
 	firstMinLoop:
-		cmp [freqCharsCount+si], -1
+		cmp [freqCharsCount+si], -1 ; end-of-freqCharsCount
 		je endFirstMin
-
-		mov cx, [(offset freqCharsCount)+si]
-		mov dx, [(offset freqCharsCount)+bx]
+	
+		mov cx, [freqCharsCount+si]
+		mov dx, [freqCharsCount+bx]
 
 		cmp cx, dx
 		jl newFirstMin
 
-		add si, 2 ; for dw indexing
+		add si, 2 ; word indexing
 		jmp firstMinLoop
-
 	endFirstMin:
-		; since si is increasing by 2, divide by 2 to get the wanted index
-		; store the first minimal value's index at ax.
-		mov ax, bx
-		xor bx, bx
-		mov bl, 2
-		div bl
-		mov ah, 0 ; ⟹ ax - first result
 
+	; bx now holds the minimal value's index
+	cmp di, 0
+	je firstResult
+	jne secondResult
 
-	xor si, si
-	xor bx, bx
-	; finding the second minimal value's index from freqCharsCount (array, dw)
-	secondMinLoop:
-		cmp [freqCharsCount+si], -1
-		je endSecondMin
-
-		cmp ax, bx
-		jne SML_continue
-		add bx, 2
-		SML_continue:
-		mov cx, [(offset freqCharsCount)+si]
-		mov dx, [(offset freqCharsCount)+bx]
-
-		cmp cx, dx
-
-		jl newSecondMin
-
-		add si, 2 ; for loading dw
-		jmp secondMinLoop
-
-	endSecondMin:
-		; since si is increasing by 2, divide by 2 to get the wanted index
-		; store the first minimal value's index at cx.
+	firstResult:
+		mov ax, [freqCharsCount+bx]
 		push ax
-		mov ax, bx
+		mov ax, bx ; ⟹ ax - first result
+		mov [freqCharsCount+bx], 199Ah ; max value
+		; find the second minimal value
+		xor si, si
 		xor bx, bx
-		mov bl, 2
-		div bl
-		mov ah, 0
-		mov cx, ax ; ⟹ cx - second result
-		pop ax
+		inc di
+		jmp firstMinLoop
 
-	endFindMins:
+	secondResult:
+		mov cx, bx ; ⟹ cx - second result
+		; retrieve the first minimal value to freqCharsCount
+		pop dx
+		mov si, ax
+		mov [freqCharsCount+si], dx
+
 	ret
-	; ----------
 	newFirstMin:
-		; found a new minimal value, update bx and iterate.
 		mov bx, si
 		add si, 2
 		jmp firstMinLoop
-	newSecondMin:
-		; converting si to normal indexing(byte indexing): si /= 2
-		push si
-		push ax
-		push bx
-
-		mov ax, si
-		mov bl, 2
-		div bl
-		mov ah, 0
-		mov si, ax
-
-		pop bx
-		pop ax
-
-		cmp si, ax
-		pop si ; retrieving si (for word indexing)
-		je skipNewMin
-		mov bx, si
-
-		; when current_min_index=first_min_index,
-		; don't assign current_min_index equal to the second_min_index(result)
-		skipNewMin:
-			add si, 2
-		jmp secondMinLoop
-
-	; ----------
-	ret
-	singleTwoMins:
-	xor si, si
-	xor bx, bx ; count
-
-	singleTwoMins_loop:
-		cmp [freqCharsCount+si], -1
-		je endFindMins
-
-		mov dx, [(offset freqCharsCount)+si]
-		cmp dx, 0FFh
-		jne newSingleMin
-
-		add si, 2
-		jmp singleTwoMins_loop
-
-	newSingleMin:
-		cmp bx, 0
-		je new_firstSingleMin
-		cmp bx, 1
-		je new_secondSingleMin
-
-	new_firstSingleMin:
-		push bx
-		mov ax, si
-		mov bl, 2
-		div bl
-		mov ah, 0
-		pop bx
-		
-		inc bx
-		add si, 2
-
-		jmp singleTwoMins_loop
-
-	new_secondSingleMin:
-		push bx
-		push ax
-		mov ax, si
-		mov bl, 2
-		div bl
-		mov ah, 0
-		mov cx, ax
-		pop ax
-		pop bx
-
-		jmp endFindMins
 endp findMins
 
 
@@ -340,20 +240,6 @@ proc addCells
 	mov si, [bp+2] ; j
 
 	skipSwap:
-	; converting bx to dw indexing
-	mov ax, bx
-	mov bx, 2
-	mul bx
-	mov bx, ax
-
-	; converting si to dw indexing
-	push bx
-	mov ax, si
-	mov bx, 2
-	mul bx
-	mov si, ax
-	pop bx
-
 	; if we are summing a parent node(s)
 	cmp [freqChars+bx], 128
 	jge incParentCount
@@ -364,7 +250,7 @@ proc addCells
 	; sum freqCharsCount cells
 	mov dx, [freqCharsCount+si]
 	add [freqCharsCount+bx], dx
-	mov [freqCharsCount+si], 0FFh
+	mov [freqCharsCount+si], 199Ah
 
 	; change freqChars
 	mov [freqChars+si], 0
@@ -382,7 +268,7 @@ proc addCells
 		mov [freqChars+si], 0
 		mov dx, [freqCharsCount+si]
 		add [freqCharsCount+bx], dx
-		mov [freqCharsCount+si], 0FFh
+		mov [freqCharsCount+si], 199Ah
 		jmp exitAddCells
 
 	exitAddCells:
@@ -538,7 +424,7 @@ proc getFreqLength
 		cmp [freqCharsCount+si], -1
 		je GFL_end
 
-		cmp [freqCharsCount+si], 0FFh
+		cmp [freqCharsCount+si], 199Ah
 		je GFL_iter
 
 		inc dx
@@ -560,6 +446,9 @@ endp getFreqLength
 proc buildCodebook
 	mov bp, sp
 
+	call buildFreqArr
+	call splitFreqArr
+
 	BC_loop:
 		; until 1 node is left
 		call getFreqLength
@@ -571,26 +460,8 @@ proc buildCodebook
 		mov bx, ax ; i
 		mov si, cx ; j
 
-		; converting to dw indexing
-		push ax
-		mov ax, bx
-		xor bx, bx
-		mov bx, 2
-		mul bx
-		mov bx, ax
-
-		mov ax, si
-		push bx
-		xor bx, bx
-		mov bx, 2
-		mul bx
-		mov si, ax
-		pop bx
-		
-		pop ax
-
 		; inserting to the codebook
-		; finding the cell with the higher frequency and assign it's value to si
+		; finding the cell with the higher frequency and assign it's index to si
 		; the other cell goes to bx
 		mov dx, [freqCharsCount+bx]
 		cmp dx, [freqCharsCount+si]
@@ -617,7 +488,7 @@ proc buildCodebook
 		call insertCodebook
 		pop si
 
-		; si gets 0 as result bit
+		; si gets 1 as result bit
 		mov ax, [freqChars+si]
 		xor bx, bx
 		mov bx, 1
