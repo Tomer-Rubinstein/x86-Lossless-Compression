@@ -12,3 +12,8 @@ To build the executable file:
 cd x86-Lossless-Compression
 auto compress
 ```
+
+To use ``auto`` from the main directory, add ``auto`` to path:
+```
+set path=%path%;.\utils
+```
