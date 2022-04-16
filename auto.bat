@@ -8,8 +8,8 @@ set file=%1
 set arg=%2
 if [%arg%]==[clean] goto :delFiles
 
-tasm /zi %file%.asm
-tlink /v %file%.obj
+.\utils\tasm /zi %file%.asm
+.\utils\tlink /v %file%.obj
 if [%arg%]==[run] goto :run
 if [%arg%]==[debug] goto :debug
 goto :eof
