@@ -1,6 +1,10 @@
-# program to output the content of 'compress.hf' as binary
+import sys
 
-with open('compress.hf', 'rb') as file:
+if len(sys.argv) < 2:
+  raise Exception("Missing CLI argument")
+
+# output the contents of 'compress.hf'
+with open(sys.argv[1], 'rb') as file:
   byteCount = 0
   while True:
     try:
