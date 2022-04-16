@@ -5,7 +5,7 @@ STACK 100h
 
 DATASEG
 	filename db 'compress.hf', 0 ; debug
-	inputFilename db 'file.txt', 0 ; debug
+	inputFilename db 51 dup(0)
 	outputFilename db 'output.txt', 0 ; debug
 	filename_len dw ?
 	filehandle dw ?
@@ -20,10 +20,17 @@ DATASEG
 	blockSize db 8
 	codebook db 2048 dup(2)
 
-	log_OpenError db '[ERROR] Program could not open the given file$'
+	log_OpenError db '[ERROR] Program could not open the given file', 10, '$'
+	log_ChoiceError db '[ERROR] Invalid choice', 10, '$'
 	log_InputFilename db 'Filename (include extension): $'
+	log_Menu db 'Huffman coding file compression program!', 10, '[1] Compress', 10, '[2] Decompress', 10, '(1 or 2) >> ', '$'
+	log_OrgByteCount db 'Original bytes count: $'
+
 	byteToWrite db 0
 	bitsCount db 0
+
+	buff db 51 dup(0)
+	byteCount dw 0
 
 
 CODESEG
@@ -31,42 +38,140 @@ start:
 	mov ax, @data
 	mov ds, ax
 
-	call compress
+	; menu
+	mov dx, offset log_Menu
+  mov ah, 9
+  int 21h
+
+	mov dx, offset buff
+	mov bx, dx
+	mov [byte ptr bx], 51
+	mov ah, 0Ah
+	int 21h
+
+	xor dx, dx
+	mov dl, [buff+2]
+
+	push dx
+	push dx
+	mov dl, 0Ah
+	mov ah, 2
+  int 21h
+	pop dx
+
+	cmp dx, 31h
+	je takeFilename
+	cmp dx, 32h
+	je takeFilename
+
+	mov dx, offset log_ChoiceError
+  mov ah, 9
+  int 21h
+	jmp exit
+
+	; get filename
+	takeFilename:
+	mov dx, offset log_InputFilename
+  mov ah, 9
+  int 21h
+
+	mov dx, offset buff
+	mov bx, dx
+	mov [byte ptr bx], 51
+	mov ah, 0Ah
+	int 21h
+
+	xor si, si
+	xor bx, bx
+	mov si, 2
+	copyFilename:
+		cmp [buff+si], 13
+		je endCopyFilename
+
+		mov al, [buff+si]
+		mov [inputFilename+bx], al
+		inc bx
+		inc si
+		jmp copyFilename
+	endCopyFilename:
+
+	mov dl, 0Ah
+	mov ah, 2
+  int 21h
+
+	pop dx
+	cmp dx, 31h ; 31 - compress ; 32 - decompress
+	je compressFile
+	jne decompressFile
+
+	compressFile:
+		call compress
+
+		; output the byte count in the compressed file
+		; open file
+		mov ah, 3Dh
+		xor al, al
+		lea dx, [filename]
+		int 21h
+		mov [newFilehandle], ax
+
+		; read file and store content in filecontent
+		mov ah, 3Fh
+		mov bx, [newFilehandle]
+		mov cx, 1200
+		mov dx, offset filecontent
+		int 21h
+
+		; close the file handle
+		mov ah, 3Eh
+		mov bx, [newFilehandle]
+		int 21h
+		jmp start_continue
+
+	decompressFile:
+		; call decompress
+
+	start_continue:
+	
+
 
 exit:
 	mov ax, 4c00h
 	int 21h
 
 
-; [TODO] use buffered input instead
-; proc getFilename prompts the user to enter a string representing
-;	the filename to be compressed. It stores the input at [filename].
-; params: null
-; result: [filename] <-- user input
-proc getFilename
-	; prompting the user to enter the filename
-	mov dx, offset log_InputFilename
-	mov ah, 9
-	int 21h
+proc printNum
+	mov bp, sp
+	mov ax, [bp+2]
 
-	; getting user input until the `enter` char (13, in ASCII)
-	mov si, 0
-	loop_getFilename:
-		mov ah, 1
+	mov bh, 3
+	mov cx, 10
+
+	printNum1:
+		xor dx, dx
+		div cx
+		push dx
+
+		sub bh, 1
+		cmp bh, 0
+		jg printNum1
+
+	mov bh, 3
+	xor dx, dx
+	printNum2:
+		pop dx
+		cmp dx, 0
+		je noprint
+		add dx,'0'
+		mov ah,2
 		int 21h
+		noprint:
+		sub bh,1
+		cmp bh,0
+		jg printNum2
 
-		cmp al, 13
-		je end_getFilename
-
-		mov [inputFilename+si], al
-
-		inc si
-		jmp loop_getFilename
-
-	end_getFilename:
-	ret
-endp getFilename
-
+	ret 2
+endp printNum
 
 ; proc buildFreqArr reads the content of filename (given) and stores
 ; each char's number of appearences at the corresponding index of that char.
@@ -101,6 +206,8 @@ proc buildFreqArr
 		inc si
 		cmp [filecontent+si], 0 ; read until the null terminator
 		jne loop_genFreqArr
+
+	mov [byteCount], si
 
 	; close file
 	mov ah, 3Eh
@@ -627,6 +734,7 @@ proc outputHuffmanCode
 
 	ret 2
 	writeByte:
+		inc [byteCount]
 		push bx
 		call outputByte
 		mov [byteToWrite], 0
@@ -676,6 +784,21 @@ proc compress
 	mov bp, sp
 
 	call buildFreqArr
+
+	; output the byte count in the original file
+	mov dx, offset log_OrgByteCount
+	mov ah, 9
+	int 21h
+
+	push [byteCount] ; got it from proc buildFreqArr
+	call printNum
+	mov [byteCount], 0
+
+	; newline
+	mov dl, 10
+	mov ah, 2
+	int 21h
+
 	call splitFreqArr
 	call buildCodebook
 	call tidyCodebook
@@ -712,6 +835,7 @@ proc compress
 	call outputByte
 
 	call outputCodebook
+	mov [byteCount], 0
 
 	; output huffman codes
 	mov [bitsCount], 0
