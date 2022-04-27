@@ -4,37 +4,38 @@ STACK 100h
 
 
 DATASEG
-	filename 						db 51 dup(0) ; compress.hf
-	inputFilename				db 51 dup(0) ; file.txt
-	outputFilename			db 51 dup(0) ; output.txt
+	filename db 51 dup(0)
+	inputFilename db 51 dup(0)
+	outputFilename db 51 dup(0) 
 
-	filename_len				dw ?
-	filehandle					dw ?
-	newFilehandle				dw ?
-	filecontent					db 1200 dup(0) ; debug
+	filename_len dw ?
+	filehandle dw ?
+	newFilehandle dw ?
+	filecontent db 1200 dup(0)
 
-	freqArr							dw 128 dup(0)
-	freqChars						dw 128 dup(0)
-	freqCharsCount			dw 128 dup(-1)
+	freqArr dw 128 dup(0)
+	freqChars dw 128 dup(0)
+	freqCharsCount dw 128 dup(-1)
 
-	parentCount					db 128
-	blockSize						db 8
-	codebook						db 2048 dup(2)
+	parentCount db 128
+	blockSize db 8
+	codebook db 2048 dup(2)
 
-	log_OpenError 			db '[ERROR] Program could not open the given filename', 10, '$'
-	log_ChoiceError 		db '[ERROR] Invalid choice', 10, '$'
-	log_success_comp		db '[DONE] Compression executed successfully', 10, '$'
-	log_success_decomp	db '[DONE] Decompression executed successfully', 10, '$'
-	log_InputFilename 	db 'Filename (include extension): $'
-	log_Menu 						db 'Huffman coding file compression program!', 10, '[1] Compress', 10, '[2] Decompress', 10, '(1 or 2) >> ', '$'
-	log_OrgByteCount 		db 'Original bytes count: $'
+	log_OpenError db '[ERROR] Program could not open the given filename', 10, '$'
+	log_ChoiceError db '[ERROR] Invalid choice', 10, '$'
+	log_success_comp db '[DONE] Compression', 10, '$'
+	log_success_decomp db '[DONE] Decompression', 10, '$'
+	log_InputFilename db 'Filename (include extension): $'
+	log_Menu db 'Huffman Coding File Compression Program!', 10, '[1] Compress', 10, '[2] Decompress', 10, '(1 or 2) >> ', '$'
+	log_OrgByteCount db 'Original file byte count: $'
+	log_CompByteCount db 'Compressed file byte count: $'
 
-	byteToWrite					db 0
-	bitsCount						db 0
+	byteToWrite db 0
+	bitsCount db 0
 
-	buff								db 51 dup(0)
-	byteCount						dw 0
-	org_filecontent_len	dw 0
+	buff db 51 dup(0)
+	byteCount dw 0
+	org_filecontent_len dw 0
 
 
 CODESEG
@@ -42,7 +43,11 @@ start:
 	mov ax, @data
 	mov ds, ax
 
-	; menu
+	; newline
+	mov dl, 0Ah
+	mov ah, 2
+	int 21h
+
 	mov dx, offset log_Menu
  	mov ah, 9
 	int 21h
@@ -91,6 +96,11 @@ start:
 	mov bx, dx
 	mov [byte ptr bx], 51
 	mov ah, 0Ah
+	int 21h
+
+	; newline
+	mov dl, 0Ah
+	mov ah, 2
 	int 21h
 
 	; copy the user input into the corresponding dataseg var
@@ -143,10 +153,28 @@ start:
 		mov [filename+si+1], 'h'
 		mov [filename+si+2], 'f'
 
-		; [TODO] stdout the byte count of the original file
+		; stdout the byte count of the compressed file
 		call compress
-		; [TODO] stdout the byte count of the compressed file
-		; [TODO] stdout success message
+		mov dx, offset log_CompByteCount
+		mov ah, 9
+		int 21h
+		push [byteCount]
+		call printNum
+
+		; newline
+		mov dl, 0Ah
+		mov ah, 2
+		int 21h
+
+		mov dx, offset log_success_comp
+		mov ah, 9
+		int 21h
+
+		; newline
+		mov dl, 0Ah
+		mov ah, 2
+		int 21h
+
 		jmp start_continue
 
 	decompressFile:
@@ -165,8 +193,11 @@ start:
 		mov [outputFilename+si+1], 't'
 		mov [outputFilename+si+2], 'x'
 		mov [outputFilename+si+3], 't'
-		; [TODO] stdout success message
+
 		call decompress
+		mov dx, offset log_success_decomp
+		mov ah, 9
+		int 21h
 
 	start_continue:
 		jmp exit
@@ -176,6 +207,9 @@ exit:
 	int 21h
 
 
+; proc printNum stdouts a given number with 3 padded zeros
+; params: [bp+2], the number to stdout
+; result: stdout [bp+2] (as a number) to the screen
 proc printNum
 	mov bp, sp
 	mov ax, [bp+2]
@@ -196,20 +230,18 @@ proc printNum
 	xor dx, dx
 	printNum2:
 		pop dx
-		cmp dx, 0
-		je noprint
 
 		add dx, '0'
 		mov ah, 2
 		int 21h
 
-		noprint:
 		sub bh, 1
 		cmp bh, 0
 		jg printNum2
 
 	ret 2
 endp printNum
+
 
 ; proc buildFreqArr reads the content of filename (given) and stores
 ; each char's number of appearences at the corresponding index of that char.
@@ -246,6 +278,17 @@ proc buildFreqArr
 		jne loop_genFreqArr
 
 	mov [byteCount], si
+
+	; stdout the byte count in the given file
+	mov dx, offset log_OrgByteCount
+	mov ah, 9
+	int 21h
+	push [byteCount]
+	call printNum
+	; newline
+	mov dl, 0Ah
+	mov ah, 2
+	int 21h
 
 	; close file
 	mov ah, 3Eh
@@ -798,7 +841,7 @@ proc outputCodebook
 		mov [bitsCount], 0
 		mov [byteToWrite], 0
 		call outputHuffmanCode
-		
+
 		cmp [bitsCount], 0
 		je skip_output_byte
 		call outputByte
@@ -816,6 +859,10 @@ proc outputCodebook
 endp outputCodebook
 
 
+; proc compress is the main procedure to execute the compression algorithm
+; to a given filename.
+; params: null
+; result: compressed file in the name of: "$filename" + ".hf"
 proc compress
 	mov bp, sp
 
@@ -850,7 +897,6 @@ proc compress
 		je end_lc_loop
 
 		inc bx
-
 		add si, 2
 		xor dx, dx
 		mov dl, [blockSize]
@@ -863,12 +909,16 @@ proc compress
 	mov bl, 2
 	mul bl
 	; ax now holds the length of the codebook
+	mov ah, 0
+	push ax
 	mov [byteToWrite], al
-	call outputByte ; output the length of the "compressed" codebook as the first byte header
+	call outputByte ; output the length of the "compressed" codebook as the third byte header
+	mov [byteCount], 3 ; 3 bytes for the header
+	pop ax
+	add [byteCount], ax
 
 	; output the codebook
 	call outputCodebook
-	mov [byteCount], 0
 
 	; output huffman codes
 	mov [bitsCount], 0
@@ -894,6 +944,7 @@ proc compress
 		cmp ax, 0
 		jne _finalByte
 	call outputByte
+	inc [byteCount]
 
 	; close the file handles
 	mov ah, 3Eh
@@ -908,6 +959,10 @@ proc compress
 endp compress
 
 
+; proc findPattern finds a given huffman code (represented as a byte) in the codebook
+; and returns it's char in ax.
+; params: [bp+2], the huffman code as byte.
+; result: the char corresponding to the given huffman code [bp+2].
 proc findPattern
 	mov bp, sp
 
@@ -939,6 +994,10 @@ proc findPattern
 endp findPattern
 
 
+; proc decompress is the main procedure for the decompression algorithm
+; to a given huffman compressed filename
+; params: null
+; result: the decompressed file that the compressed file represents in the name of: "$filename" + ".txt"
 proc decompress
 	mov bp, sp
 
