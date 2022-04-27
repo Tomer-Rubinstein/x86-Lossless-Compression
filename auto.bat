@@ -19,7 +19,7 @@ goto :eof
   goto :eof
 
 :debug 
-  td %file%.exe
+  .\utils\td %file%.exe
   goto :eof
 
 :delFiles

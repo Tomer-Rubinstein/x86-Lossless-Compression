@@ -4,33 +4,37 @@ STACK 100h
 
 
 DATASEG
-	filename db 'compress.hf', 0 ; debug
-	inputFilename db 51 dup(0)
-	outputFilename db 'output.txt', 0 ; debug
-	filename_len dw ?
-	filehandle dw ?
-	newFilehandle dw ?
-	filecontent db 1400 dup(0) ; debug
+	filename 						db 51 dup(0) ; compress.hf
+	inputFilename				db 51 dup(0) ; file.txt
+	outputFilename			db 51 dup(0) ; output.txt
 
-	freqArr dw 128 dup(0)
-	freqChars dw 128 dup(0)
-	freqCharsCount dw 128 dup(-1)
+	filename_len				dw ?
+	filehandle					dw ?
+	newFilehandle				dw ?
+	filecontent					db 1200 dup(0) ; debug
 
-	parentCount db 128
-	blockSize db 8
-	codebook db 2048 dup(2)
+	freqArr							dw 128 dup(0)
+	freqChars						dw 128 dup(0)
+	freqCharsCount			dw 128 dup(-1)
 
-	log_OpenError db '[ERROR] Program could not open the given file', 10, '$'
-	log_ChoiceError db '[ERROR] Invalid choice', 10, '$'
-	log_InputFilename db 'Filename (include extension): $'
-	log_Menu db 'Huffman coding file compression program!', 10, '[1] Compress', 10, '[2] Decompress', 10, '(1 or 2) >> ', '$'
-	log_OrgByteCount db 'Original bytes count: $'
+	parentCount					db 128
+	blockSize						db 8
+	codebook						db 2048 dup(2)
 
-	byteToWrite db 0
-	bitsCount db 0
+	log_OpenError 			db '[ERROR] Program could not open the given filename', 10, '$'
+	log_ChoiceError 		db '[ERROR] Invalid choice', 10, '$'
+	log_success_comp		db '[DONE] Compression executed successfully', 10, '$'
+	log_success_decomp	db '[DONE] Decompression executed successfully', 10, '$'
+	log_InputFilename 	db 'Filename (include extension): $'
+	log_Menu 						db 'Huffman coding file compression program!', 10, '[1] Compress', 10, '[2] Decompress', 10, '(1 or 2) >> ', '$'
+	log_OrgByteCount 		db 'Original bytes count: $'
 
-	buff db 51 dup(0)
-	byteCount dw 0
+	byteToWrite					db 0
+	bitsCount						db 0
+
+	buff								db 51 dup(0)
+	byteCount						dw 0
+	org_filecontent_len	dw 0
 
 
 CODESEG
@@ -40,47 +44,59 @@ start:
 
 	; menu
 	mov dx, offset log_Menu
-  mov ah, 9
-  int 21h
-
-	mov dx, offset buff
-	mov bx, dx
-	mov [byte ptr bx], 51
-	mov ah, 0Ah
+ 	mov ah, 9
 	int 21h
 
-	xor dx, dx
-	mov dl, [buff+2]
+	; take the user's choice (compression or decompression)
+	mov ah, 7
+	mov dl, 0FFh
+	int 21h
+	; print choice
+	mov dl, al
+	mov ah, 2
+	int 21h
 
+	; dl holds the user's choice
+	xor dx, dx
+	mov dl, al 
+
+	; newline
 	push dx
 	push dx
 	mov dl, 0Ah
 	mov ah, 2
-  int 21h
+	int 21h
 	pop dx
 
+	; 31h(1) means compression and 32h(2) means decompression
 	cmp dx, 31h
 	je takeFilename
 	cmp dx, 32h
 	je takeFilename
 
+	; in case of invalid choice (neither 1 or 2), log error & exit
 	mov dx, offset log_ChoiceError
-  mov ah, 9
-  int 21h
+	mov ah, 9
+	int 21h
 	jmp exit
 
-	; get filename
+	; get filename (to compress or decompress)
 	takeFilename:
 	mov dx, offset log_InputFilename
-  mov ah, 9
-  int 21h
+	mov ah, 9
+	int 21h
 
+	; get user input
 	mov dx, offset buff
 	mov bx, dx
 	mov [byte ptr bx], 51
 	mov ah, 0Ah
 	int 21h
 
+	; copy the user input into the corresponding dataseg var
+	; inputFilename(for compression), filename(for decompression)
+	pop dx
+	push dx
 	xor si, si
 	xor bx, bx
 	mov si, 2
@@ -89,51 +105,71 @@ start:
 		je endCopyFilename
 
 		mov al, [buff+si]
-		mov [inputFilename+bx], al
+		cmp dx, 31h
+		je compFilename
+		mov [filename+bx], al
+		jmp fc_iter
+		compFilename:
+		mov [inputFilename+bx], al ; compress filename
+		fc_iter:
 		inc bx
 		inc si
 		jmp copyFilename
 	endCopyFilename:
 
+	; newline
 	mov dl, 0Ah
 	mov ah, 2
-  int 21h
+	int 21h
 
 	pop dx
-	cmp dx, 31h ; 31 - compress ; 32 - decompress
+	cmp dx, 31h ; 31 - compress & 32 - decompress
 	je compressFile
 	jne decompressFile
 
 	compressFile:
+		; generating the compressed filename (result filename)
+		xor si, si
+		genCompFilename:
+			mov al, [inputFilename+si]
+			cmp al, '.'
+			je end_cmf
+			mov [filename+si], al
+
+			inc si
+			jmp genCompFilename
+		end_cmf:
+		mov [filename+si], '.'
+		mov [filename+si+1], 'h'
+		mov [filename+si+2], 'f'
+
+		; [TODO] stdout the byte count of the original file
 		call compress
-
-		; output the byte count in the compressed file
-		; open file
-		mov ah, 3Dh
-		xor al, al
-		lea dx, [filename]
-		int 21h
-		mov [newFilehandle], ax
-
-		; read file and store content in filecontent
-		mov ah, 3Fh
-		mov bx, [newFilehandle]
-		mov cx, 1200
-		mov dx, offset filecontent
-		int 21h
-
-		; close the file handle
-		mov ah, 3Eh
-		mov bx, [newFilehandle]
-		int 21h
+		; [TODO] stdout the byte count of the compressed file
+		; [TODO] stdout success message
 		jmp start_continue
 
 	decompressFile:
-		; call decompress
+		; generating the compressed filename (result filename)
+		xor si, si
+		genOutFilename:
+			mov al, [filename+si]
+			cmp al, '.'
+			je end_gof
+			mov [outputFilename+si], al
+
+			inc si
+			jmp genOutFilename
+		end_gof:
+		mov [outputFilename+si], '.'
+		mov [outputFilename+si+1], 't'
+		mov [outputFilename+si+2], 'x'
+		mov [outputFilename+si+3], 't'
+		; [TODO] stdout success message
+		call decompress
 
 	start_continue:
-	
-
+		jmp exit
 
 exit:
 	mov ax, 4c00h
@@ -162,12 +198,14 @@ proc printNum
 		pop dx
 		cmp dx, 0
 		je noprint
-		add dx,'0'
-		mov ah,2
+
+		add dx, '0'
+		mov ah, 2
 		int 21h
+
 		noprint:
-		sub bh,1
-		cmp bh,0
+		sub bh, 1
+		cmp bh, 0
 		jg printNum2
 
 	ret 2
@@ -553,9 +591,6 @@ endp getFreqLength
 proc buildCodebook
 	mov bp, sp
 
-	call buildFreqArr
-	call splitFreqArr
-
 	BC_loop:
 		; until 1 node is left
 		call getFreqLength
@@ -594,6 +629,7 @@ proc buildCodebook
 		push cx ; [bp+2] = al = count
 		call insertCodebook
 		pop si
+
 
 		; si gets 1 as result bit
 		mov ax, [freqChars+si]
@@ -717,7 +753,7 @@ proc outputHuffmanCode
 	; now read the huffman code and append to [byteToWrite]
 	inc bx
 	t3:
-		cmp [bitsCount], 8 ; byteToWrite is full
+		cmp [bitsCount], 8 ; byteToWrite is full 					DEBUG: WAS 8
 		je writeByte
 		cmp [codebook+bx], 2
 		je end_t3 ; done writing the huffman code to [byteToWrite]
@@ -784,21 +820,6 @@ proc compress
 	mov bp, sp
 
 	call buildFreqArr
-
-	; output the byte count in the original file
-	mov dx, offset log_OrgByteCount
-	mov ah, 9
-	int 21h
-
-	push [byteCount] ; got it from proc buildFreqArr
-	call printNum
-	mov [byteCount], 0
-
-	; newline
-	mov dl, 10
-	mov ah, 2
-	int 21h
-
 	call splitFreqArr
 	call buildCodebook
 	call tidyCodebook
@@ -810,7 +831,18 @@ proc compress
 	int 21h
 	mov [newFilehandle], ax	; save new file handle
 
-	; output length of codebook
+	; output [byteCount] to the compressed file
+	mov bx, [byteCount]
+	mov [byteToWrite], bh
+	call outputByte
+	mov bx, [byteCount]
+	mov [byteToWrite], bl
+	call outputByte
+
+	mov [byteToWrite], 0
+	mov [byteCount], 0
+
+	; get the codebook's length
 	xor bx, bx
 	xor si, si
 	lc_loop:
@@ -832,8 +864,9 @@ proc compress
 	mul bl
 	; ax now holds the length of the codebook
 	mov [byteToWrite], al
-	call outputByte
+	call outputByte ; output the length of the "compressed" codebook as the first byte header
 
+	; output the codebook
 	call outputCodebook
 	mov [byteCount], 0
 
@@ -851,9 +884,10 @@ proc compress
 		inc si
 		cmp [filecontent+si], 0
 		jne ofc_loop
+
 	; output the final byte
 	mov ax, 8
-	sub al, [bitsCount] ; bits count
+	sub al, [bitsCount]
 	_finalByte:
 		shl [byteToWrite], 1
 		dec ax
@@ -878,7 +912,7 @@ proc findPattern
 	mov bp, sp
 
 	mov ax, [bp+2]
-	
+
 	xor si, si
 	fp_loop:
 		cmp [codebook+si+1], al
@@ -896,6 +930,8 @@ proc findPattern
 	found:
 		xor ax, ax
 		mov al, [codebook+si]
+		cmp ax, 2
+		je notFound
 	ret 2
 	notFound:
 		mov ax, 0
@@ -938,11 +974,16 @@ proc decompress
 	int 21h
 
 	xor dx, dx
-	mov dl, [filecontent+0] ; dl := length[codebook]
-	inc dl ; for 1..n indexing
+	mov dh, [filecontent+0]
+	mov dl, [filecontent+1]
+	mov [org_filecontent_len], dx
+
+	xor dx, dx
+	mov dl, [filecontent+2] ; dl := length[codebook]
+	add dl, 3 ; to ignore the compressed file's headers
 
 	xor si, si
-	inc si ; for reading the codebook
+	add si, 3 ; for reading the codebook
 	; insert the codebook from the file to [codebook]
 	df_loop:
 		cmp si, dx ; end-of-codebook
@@ -967,25 +1008,23 @@ proc decompress
 		jmp df_loop
 	end_df_loop:
 
-	; although si=start-of-huffman, for safety use, re-calculate
-	; the start index of the huffman code
+	; re-calculate the start index of the huffman code
 	xor bx, bx
-	mov bl, [filecontent+0]
-	inc bx
+	mov bl, [filecontent+2] ; length of the codebook
+	add bx, 3 ; to ignore the header bytes
 	xor cx, cx ; curr pattern
 	dc_loop:
-		mov al, [filecontent+bx]
-		cmp al, 5 ; EOF
-		je end_dc_loop
-
 		; lookup current huffman code
+		mov al, [filecontent+bx]
 		xor dx, dx ; bit count
 		f1:
+			; done writing all original bytes
+			mov si, [byteCount]
+			cmp [org_filecontent_len], si
+			je end_dc_loop
+
 			cmp dx, 8 ; done with this byte
 			je end_f1
-			; [TODO]
-			; cmp si, ORG_FILECONTENT_LENGTH
-			; je end_dc_loop
 
 			; add 1 or 0 to the LSB of cx
 			shl cx, 1
@@ -993,7 +1032,7 @@ proc decompress
 			shl al, 1
 			push ax
 			jnc f1_continue
-			
+
 			add cx, 1
 			f1_continue:
 				push bx
@@ -1012,6 +1051,7 @@ proc decompress
 				mov [byteToWrite], al
 				call outputByte
 				; search for a new pattern
+				inc [byteCount]
 				pop cx
 				xor cx, cx
 				jmp keep_cx
