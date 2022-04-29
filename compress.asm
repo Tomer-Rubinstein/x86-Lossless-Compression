@@ -962,7 +962,7 @@ endp compress
 ; proc findPattern finds a given huffman code (represented as a byte) in the codebook
 ; and returns it's char in ax.
 ; params: [bp+2], the huffman code as byte.
-; result: the char corresponding to the given huffman code [bp+2].
+; result: ax - the char corresponding to the given huffman code [bp+2].
 proc findPattern
 	mov bp, sp
 
@@ -1085,7 +1085,7 @@ proc decompress
 			cmp dx, 8 ; done with this byte
 			je end_f1
 
-			; add 1 or 0 to the LSB of cx
+			; add 1 or 0 to the MSB of cx
 			shl cx, 1
 			clc
 			shl al, 1
