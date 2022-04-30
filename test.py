@@ -16,11 +16,3 @@ with open(sys.argv[1], 'rb') as file:
       break
   file.close()
   print(f"\nByte count: {byteCount}")
-
-with open('file.txt', 'r') as file:
-  filecontent = file.read()
-  arr = []
-  for char in filecontent:
-    if char not in arr:
-      arr.append(char)
-  print(arr, "\n", len(arr))

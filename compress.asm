@@ -200,6 +200,14 @@ start:
 		int 21h
 
 	start_continue:
+		; close the file handles
+		mov ah, 3Eh
+		mov bx, [newFilehandle]
+		int 21h
+
+		mov ah, 3Eh
+		mov bx, [filehandle]
+		int 21h
 		jmp exit
 
 exit:
@@ -290,13 +298,7 @@ proc buildFreqArr
 	mov ah, 2
 	int 21h
 
-	; close file
-	mov ah, 3Eh
-	mov bx, [filehandle]
-	int 21h
-
 	ret
-
 	; log error msg if the file couldn't be opened
 	openError:
 		mov dx, offset log_OpenError
@@ -445,11 +447,9 @@ proc addCells
 	xor dx, dx
 	mov dl, [parentCount]
 	mov [freqChars+bx], dx
-	; inc [parentCount]
 
 	jmp exitAddCells
 	incParentCount:
-		; inc [parentCount]
 		xor dx, dx
 		mov dl, [parentCount]
 		mov [freqChars+bx], dx
@@ -609,10 +609,10 @@ proc getFreqLength
 	xor dx, dx
 	xor si, si
 	GFL_loop:
-		cmp [freqCharsCount+si], -1
+		cmp [freqCharsCount+si], -1 ; end-of-freqCharsCount
 		je GFL_end
 
-		cmp [freqCharsCount+si], 199Ah
+		cmp [freqCharsCount+si], 199Ah ; "null" value
 		je GFL_iter
 
 		inc dx
@@ -716,7 +716,7 @@ proc tidyCodebook
 		je end_reverseHuffman
 
 		mov bx, si
-		; find the index tail of the huffman code = bx
+		; find the tail index of the huffman code >> bx
 		l2:
 			cmp [codebook+bx+1], 2
 			je end_l2
@@ -731,6 +731,7 @@ proc tidyCodebook
 			cmp si, bx
 			jge end_l3
 
+			; exchange start, end
 			mov al, [codebook+bx]
 			mov ah, [codebook+si]
 			mov [codebook+bx], ah
@@ -796,7 +797,7 @@ proc outputHuffmanCode
 	; now read the huffman code and append to [byteToWrite]
 	inc bx
 	t3:
-		cmp [bitsCount], 8 ; byteToWrite is full 					DEBUG: WAS 8
+		cmp [bitsCount], 8 ; byteToWrite is full
 		je writeByte
 		cmp [codebook+bx], 2
 		je end_t3 ; done writing the huffman code to [byteToWrite]
@@ -946,15 +947,6 @@ proc compress
 	call outputByte
 	inc [byteCount]
 
-	; close the file handles
-	mov ah, 3Eh
-	mov bx, [newFilehandle]
-	int 21h
-
-	mov ah, 3Eh
-	mov bx, [filehandle]
-	int 21h
-
 	ret
 endp compress
 
@@ -975,10 +967,10 @@ proc findPattern
 		cmp [codebook+si], 2 ; end-of-codebook
 		je notFound
 
+		; iteration
 		xor bx, bx
 		mov bl, [blockSize]
 		add si, bx
-
 		add si, 2
 		jmp fp_loop
 
@@ -1015,12 +1007,11 @@ proc decompress
 	int 21h
 	jnc continue_decompress
 	
-	; log error msg if the file couldn't be opened
+	; log error msg if the file couldn't be opened & exit
 	mov dx, offset log_OpenError
 	mov ah, 9
 	int 21h
-	mov ax, 4c00h
-	int 21h
+	jmp exit
 
 	continue_decompress:
 	mov [filehandle], ax
@@ -1085,7 +1076,7 @@ proc decompress
 			cmp dx, 8 ; done with this byte
 			je end_f1
 
-			; add 1 or 0 to the MSB of cx
+			; add 1 or 0 to the LSB of cx
 			shl cx, 1
 			clc
 			shl al, 1
